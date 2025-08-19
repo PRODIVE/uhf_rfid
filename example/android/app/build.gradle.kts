@@ -8,7 +8,7 @@ plugins {
 android {
     namespace = "com.example.uhf_rfid_example"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
+    // ndkVersion removed to avoid requiring a local NDK installation when using only prebuilt .so libraries
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11

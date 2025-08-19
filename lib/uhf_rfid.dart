@@ -26,7 +26,45 @@ class UhfRfid {
   static Stream<UhfRfidTag> get inventoryStream {
     return _epcStream.receiveBroadcastStream().map((dynamic e) {
       final map = Map<String, dynamic>.from(e as Map);
-      return UhfRfidTag(map['epc'] as String, (map['rssi'] as num?)?.toInt() ?? 0);
+      if (map.containsKey('epc')) {
+        return UhfRfidTag(map['epc'] as String, (map['rssi'] as num?)?.toInt() ?? 0);
+      } else if (map.containsKey('tid')) {
+        return UhfRfidTag(map['tid'] as String, 0);
+      }
+      throw StateError('Unknown stream payload: $map');
     });
+  }
+
+  static Future<void> setStreamMode({required bool tid}) async {
+    await _methods.invokeMethod('setStreamMode', {'mode': tid ? 'tid' : 'epc'});
+  }
+
+  static Future<String?> readTid({int startWord = 0, int wordCount = 6, String accessPasswordHex = '00000000'}) async {
+    final tid = await _methods.invokeMethod<String>('readTid', {
+      'start': startWord,
+      'count': wordCount,
+      'password': accessPasswordHex,
+    });
+    return tid;
+  }
+
+  static Future<bool> setPower(int powerDb) async {
+    final success = await _methods.invokeMethod<bool>('setPower', {'power': powerDb});
+    return success ?? false;
+  }
+
+  static Future<int?> getPower() async {
+    final power = await _methods.invokeMethod<int>('getPower');
+    return power;
+  }
+
+  static Future<bool> setWorkArea(int area) async {
+    final success = await _methods.invokeMethod<bool>('setWorkArea', {'area': area});
+    return success ?? false;
+  }
+
+  static Future<int?> getWorkArea() async {
+    final area = await _methods.invokeMethod<int>('getWorkArea');
+    return area;
   }
 }

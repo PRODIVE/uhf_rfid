@@ -29,16 +29,40 @@ class _UhfHomePageState extends State<UhfHomePage> {
   bool _scanning = false;
   StreamSubscription<UhfRfidTag>? _sub;
   final Map<String, int> _epcCounts = {};
+  String? _lastTid;
+  bool _tidMode = false;
+  int _currentPower = 20;
+  int _currentWorkArea = 0;
+  int _debounceMs = 300;
+  final Map<String, int> _lastSeenMs = {};
 
   Future<void> _initialize() async {
     final ok = await UhfRfid.initialize(port: _portController.text.trim());
-    setState(() => _initialized = ok);
+    if (ok) {
+      final power = await UhfRfid.getPower();
+      final area = await UhfRfid.getWorkArea();
+      setState(() {
+        _initialized = ok;
+        if (power != null) _currentPower = power;
+        if (area != null) _currentWorkArea = area;
+      });
+    } else {
+      setState(() => _initialized = ok);
+    }
   }
 
   Future<void> _start() async {
     if (!_initialized) return;
+    await UhfRfid.powerOn();
+    await UhfRfid.setStreamMode(tid: _tidMode);
     await UhfRfid.startInventory();
     _sub ??= UhfRfid.inventoryStream.listen((tag) {
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final last = _lastSeenMs[tag.epc];
+      if (last != null && now - last < _debounceMs) {
+        return;
+      }
+      _lastSeenMs[tag.epc] = now;
       setState(() {
         _epcCounts.update(tag.epc, (v) => v + 1, ifAbsent: () => 1);
       });
@@ -48,6 +72,7 @@ class _UhfHomePageState extends State<UhfHomePage> {
 
   Future<void> _stop() async {
     await UhfRfid.stopInventory();
+    await UhfRfid.powerOff();
     await _sub?.cancel();
     _sub = null;
     setState(() => _scanning = false);
@@ -91,6 +116,20 @@ class _UhfHomePageState extends State<UhfHomePage> {
               ),
             ]),
             const SizedBox(height: 12),
+            Row(children: [
+              Switch(
+                value: _tidMode,
+                onChanged: _initialized && !_scanning
+                    ? (v) async {
+                        setState(() => _tidMode = v);
+                        await UhfRfid.setStreamMode(tid: v);
+                      }
+                    : null,
+              ),
+              const SizedBox(width: 8),
+              Text(_tidMode ? 'Mode: TID' : 'Mode: EPC'),
+            ]),
+            const SizedBox(height: 8),
             Wrap(spacing: 8, children: [
               ElevatedButton(
                 onPressed: _initialized && !_scanning ? _start : null,
@@ -105,12 +144,94 @@ class _UhfHomePageState extends State<UhfHomePage> {
                 child: const Text('Close'),
               ),
               ElevatedButton(
-                onPressed: () => setState(_epcCounts.clear),
+                onPressed: _initialized ? () async {
+                  final tid = await UhfRfid.readTid(startWord: 0, wordCount: 6);
+                  setState(() { _lastTid = tid; });
+                } : null,
+                child: const Text('Read TID'),
+              ),
+              ElevatedButton(
+                onPressed: () => setState(() {
+                  _epcCounts.clear();
+                  _lastSeenMs.clear();
+                }),
                 child: const Text('Clear'),
               ),
             ]),
             const SizedBox(height: 12),
+            Text('Unique: ${_epcCounts.length}   Total: ${_epcCounts.values.fold<int>(0, (a, b) => a + b)}'),
             Text('Initialized: $_initialized   Scanning: $_scanning'),
+            if (_lastTid != null) ...[
+              const SizedBox(height: 6),
+              Text('TID: $_lastTid'),
+            ],
+            const SizedBox(height: 12),
+            if (_initialized) ...[
+              Row(children: [
+                const Text('Power: '),
+                Expanded(
+                  child: Slider(
+                    value: _currentPower.toDouble(),
+                    min: 0,
+                    max: 33,
+                    divisions: 33,
+                    label: '${_currentPower}dB',
+                    onChanged: (value) {
+                      setState(() => _currentPower = value.round());
+                    },
+                    onChangeEnd: (value) async {
+                      await UhfRfid.setPower(value.round());
+                    },
+                  ),
+                ),
+                SizedBox(
+                  width: 50,
+                  child: Text('${_currentPower}dB'),
+                ),
+              ]),
+              Row(children: [
+                const Text('Work Area: '),
+                Expanded(
+                  child: Slider(
+                    value: _currentWorkArea.toDouble(),
+                    min: 0,
+                    max: 3,
+                    divisions: 3,
+                    label: 'Area $_currentWorkArea',
+                    onChanged: (value) {
+                      setState(() => _currentWorkArea = value.round());
+                    },
+                    onChangeEnd: (value) async {
+                      await UhfRfid.setWorkArea(value.round());
+                    },
+                  ),
+                ),
+                SizedBox(
+                  width: 50,
+                  child: Text('Area $_currentWorkArea'),
+                ),
+              ]),
+              const SizedBox(height: 8),
+              Row(children: [
+                const Text('Debounce (ms): '),
+                Expanded(
+                  child: Slider(
+                    value: _debounceMs.toDouble(),
+                    min: 0,
+                    max: 2000,
+                    divisions: 40,
+                    label: '${_debounceMs}ms',
+                    onChanged: (value) {
+                      setState(() => _debounceMs = value.round());
+                    },
+                  ),
+                ),
+                SizedBox(
+                  width: 70,
+                  child: Text('${_debounceMs}ms'),
+                ),
+              ]),
+            ],
             const Divider(height: 24),
             const Text('Tags:'),
             const SizedBox(height: 8),
