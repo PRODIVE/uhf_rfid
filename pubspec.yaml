@@ -1,6 +1,6 @@
 name: uhf_rfid
-description: "A new Flutter plugin project."
-version: 0.0.1
+description: "Flutter plugin for UHF RFID readers (Android) using native library. Provides initialization, power control, inventory streaming, TID reads, power/work area configuration, and stream mode toggling (EPC or TID)."
+version: 1.0.0
 homepage:
 
 environment:
