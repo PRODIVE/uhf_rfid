@@ -73,6 +73,25 @@ All methods are static on `UhfRfid`.
 - `Future<bool> setWorkArea(int area)` / `Future<int?> getWorkArea()`
   - Set/get regional work area (band). Values are device-specific (commonly 0–3). Consult device docs.
 
+- `Future<Map<String, dynamic>> checkDeviceSupport({String port = '/dev/ttyHS2'})`
+  - Checks if the device supports UHF RFID reading.
+  - Returns a map with:
+    - `supported`: boolean indicating if UHF reader is available
+    - `reason`: string explaining the result
+    - `port`: the port that was tested
+  - Use this before calling `initialize()` to check hardware support.
+
+Example:
+```dart
+final support = await UhfRfid.checkDeviceSupport();
+if (support['supported']) {
+  print('UHF reader available: ${support['reason']}');
+  await UhfRfid.initialize();
+} else {
+  print('UHF reader not available: ${support['reason']}');
+}
+```
+
 ## Example app features
 
 The `example` app demonstrates:
@@ -84,6 +103,35 @@ The `example` app demonstrates:
 - Power (dB) and Work Area controls
 - Debounce window (ms) to suppress duplicate IDs
 - Unique and total counts with simple list of observed IDs
+
+## Debouncing duplicate tags (suppress repeats)
+
+Inventory streams often return the same tag repeatedly while it remains in the antenna field. You can suppress repeats within a time window (debounce) on the Dart side:
+
+```dart
+int debounceMs = 300; // adjust as needed
+final Map<String, int> lastSeenMs = {};
+
+final sub = UhfRfid.inventoryStream.listen((tag) {
+  final now = DateTime.now().millisecondsSinceEpoch;
+  final last = lastSeenMs[tag.epc];
+  if (last != null && now - last < debounceMs) {
+    // Same ID seen too soon; skip
+    return;
+  }
+  lastSeenMs[tag.epc] = now;
+
+  // Handle unique-or-debounced tag here
+  // e.g., update counts or UI
+});
+
+// When clearing state
+lastSeenMs.clear();
+```
+
+Notes:
+- This runs entirely on the Flutter side and works for both EPC and TID stream modes.
+- The example app includes a Debounce (ms) slider and maintains `Unique` and `Total` counts using this pattern.
 
 ## Notes
 
