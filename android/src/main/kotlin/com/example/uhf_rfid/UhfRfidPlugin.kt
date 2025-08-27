@@ -49,6 +49,45 @@ class UhfRfidPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChann
                     result.error("INIT_ERROR", e.message, null)
                 }
             }
+            "checkDeviceSupport" -> {
+                val port = call.argument<String>("port") ?: "/dev/ttyHS2"
+                try {
+                    // Test if the serial port file exists and is accessible
+                    val portFile = java.io.File(port)
+                    if (!portFile.exists()) {
+                        result.success(mapOf(
+                            "supported" to false,
+                            "reason" to "Serial port $port does not exist",
+                            "port" to port
+                        ))
+                        return
+                    }
+                    
+                    // Try to initialize the reader to test hardware support
+                    UhfReader.setPortPath(port)
+                    val testReader = UhfReader.getInstance()
+                    if (testReader != null) {
+                        testReader.close()
+                        result.success(mapOf(
+                            "supported" to true,
+                            "reason" to "UHF reader hardware detected",
+                            "port" to port
+                        ))
+                    } else {
+                        result.success(mapOf(
+                            "supported" to false,
+                            "reason" to "UHF reader hardware not detected",
+                            "port" to port
+                        ))
+                    }
+                } catch (e: Exception) {
+                    result.success(mapOf(
+                        "supported" to false,
+                        "reason" to "Error: ${e.message}",
+                        "port" to port
+                    ))
+                }
+            }
             "setStreamMode" -> {
                 val mode = call.argument<String>("mode")
                 if (mode == "epc" || mode == "tid") {

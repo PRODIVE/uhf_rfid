@@ -35,6 +35,20 @@ class _UhfHomePageState extends State<UhfHomePage> {
   int _currentWorkArea = 0;
   int _debounceMs = 300;
   final Map<String, int> _lastSeenMs = {};
+  String? _deviceSupportStatus;
+
+  Future<void> _checkDeviceSupport() async {
+    try {
+      final support = await UhfRfid.checkDeviceSupport(port: _portController.text.trim());
+      setState(() {
+        _deviceSupportStatus = '${support['supported'] ? '✓' : '✗'} ${support['reason']}';
+      });
+    } catch (e) {
+      setState(() {
+        _deviceSupportStatus = 'Error: $e';
+      });
+    }
+  }
 
   Future<void> _initialize() async {
     final ok = await UhfRfid.initialize(port: _portController.text.trim());
@@ -111,11 +125,20 @@ class _UhfHomePageState extends State<UhfHomePage> {
               ),
               const SizedBox(width: 8),
               ElevatedButton(
+                onPressed: _checkDeviceSupport,
+                child: const Text('Check Support'),
+              ),
+              const SizedBox(width: 8),
+              ElevatedButton(
                 onPressed: _initialize,
                 child: Text(_initialized ? 'Re-Init' : 'Init'),
               ),
             ]),
             const SizedBox(height: 12),
+            if (_deviceSupportStatus != null) ...[
+              Text('Device Support: $_deviceSupportStatus'),
+              const SizedBox(height: 8),
+            ],
             Row(children: [
               Switch(
                 value: _tidMode,

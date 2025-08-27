@@ -16,6 +16,11 @@ class UhfRfid {
     return ok ?? false;
   }
 
+  static Future<Map<String, dynamic>> checkDeviceSupport({String port = '/dev/ttyHS2'}) async {
+    final result = await _methods.invokeMethod<Map<dynamic, dynamic>>('checkDeviceSupport', {'port': port});
+    return Map<String, dynamic>.from(result ?? {});
+  }
+
   static Future<void> powerOn() => _methods.invokeMethod('powerOn');
   static Future<void> powerOff() => _methods.invokeMethod('powerOff');
 
