@@ -72,4 +72,9 @@ class UhfRfid {
     final area = await _methods.invokeMethod<int>('getWorkArea');
     return area;
   }
+
+  static Future<Map<String, dynamic>> testReader() async {
+    final result = await _methods.invokeMethod<Map<dynamic, dynamic>>('testReader');
+    return Map<String, dynamic>.from(result ?? {});
+  }
 }

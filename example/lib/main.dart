@@ -36,6 +36,7 @@ class _UhfHomePageState extends State<UhfHomePage> {
   int _debounceMs = 300;
   final Map<String, int> _lastSeenMs = {};
   String? _deviceSupportStatus;
+  String? _testResult;
 
   Future<void> _checkDeviceSupport() async {
     try {
@@ -70,17 +71,31 @@ class _UhfHomePageState extends State<UhfHomePage> {
     await UhfRfid.powerOn();
     await UhfRfid.setStreamMode(tid: _tidMode);
     await UhfRfid.startInventory();
-    _sub ??= UhfRfid.inventoryStream.listen((tag) {
-      final now = DateTime.now().millisecondsSinceEpoch;
-      final last = _lastSeenMs[tag.epc];
-      if (last != null && now - last < _debounceMs) {
-        return;
+    _sub ??= UhfRfid.inventoryStream.listen(
+      (tag) {
+        final now = DateTime.now().millisecondsSinceEpoch;
+        final last = _lastSeenMs[tag.epc];
+        if (last != null && now - last < _debounceMs) {
+          return;
+        }
+        _lastSeenMs[tag.epc] = now;
+        setState(() {
+          _epcCounts.update(tag.epc, (v) => v + 1, ifAbsent: () => 1);
+        });
+      },
+      onError: (error) {
+        print('Stream error: $error');
+        setState(() {
+          _testResult = 'Stream error: $error';
+        });
+      },
+      onDone: () {
+        print('Stream closed');
+        setState(() {
+          _testResult = 'Stream closed unexpectedly';
+        });
       }
-      _lastSeenMs[tag.epc] = now;
-      setState(() {
-        _epcCounts.update(tag.epc, (v) => v + 1, ifAbsent: () => 1);
-      });
-    });
+    );
     setState(() => _scanning = true);
   }
 
@@ -96,6 +111,19 @@ class _UhfHomePageState extends State<UhfHomePage> {
     await _stop();
     await UhfRfid.close();
     setState(() => _initialized = false);
+  }
+
+  Future<void> _testReader() async {
+    try {
+      final result = await UhfRfid.testReader();
+      setState(() {
+        _testResult = result.toString();
+      });
+    } catch (e) {
+      setState(() {
+        _testResult = 'Test error: $e';
+      });
+    }
   }
 
   @override
@@ -180,6 +208,10 @@ class _UhfHomePageState extends State<UhfHomePage> {
                 }),
                 child: const Text('Clear'),
               ),
+              ElevatedButton(
+                onPressed: _initialized ? _testReader : null,
+                child: const Text('Test Reader'),
+              ),
             ]),
             const SizedBox(height: 12),
             Text('Unique: ${_epcCounts.length}   Total: ${_epcCounts.values.fold<int>(0, (a, b) => a + b)}'),
@@ -187,6 +219,10 @@ class _UhfHomePageState extends State<UhfHomePage> {
             if (_lastTid != null) ...[
               const SizedBox(height: 6),
               Text('TID: $_lastTid'),
+            ],
+            if (_testResult != null) ...[
+              const SizedBox(height: 6),
+              Text('Test Result: $_testResult'),
             ],
             const SizedBox(height: 12),
             if (_initialized) ...[

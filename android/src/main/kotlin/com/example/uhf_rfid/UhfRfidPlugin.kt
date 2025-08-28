@@ -3,6 +3,7 @@ package com.example.uhf_rfid
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
+import android.util.Log
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
@@ -42,10 +43,14 @@ class UhfRfidPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChann
             "initialize" -> {
                 val port = call.argument<String>("port") ?: "/dev/ttyHS2"
                 try {
+                    Log.d("UhfRfidPlugin", "Initializing with port: $port")
                     UhfReader.setPortPath(port)
                     reader = UhfReader.getInstance()
-                    result.success(reader != null)
+                    val success = reader != null
+                    Log.d("UhfRfidPlugin", "Initialize result: $success, reader=$reader")
+                    result.success(success)
                 } catch (e: Exception) {
+                    Log.e("UhfRfidPlugin", "Initialize error", e)
                     result.error("INIT_ERROR", e.message, null)
                 }
             }
@@ -127,17 +132,23 @@ class UhfRfidPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChann
             }
             "powerOn" -> {
                 try {
+                    Log.d("UhfRfidPlugin", "Powering on UHF module")
                     ReaderPort.uhfOpenPower()
+                    Log.d("UhfRfidPlugin", "UHF power on successful")
                     result.success(true)
                 } catch (e: Exception) {
+                    Log.e("UhfRfidPlugin", "Power on error", e)
                     result.error("POWER_ON_ERROR", e.message, null)
                 }
             }
             "powerOff" -> {
                 try {
+                    Log.d("UhfRfidPlugin", "Powering off UHF module")
                     ReaderPort.uhfClosePower()
+                    Log.d("UhfRfidPlugin", "UHF power off successful")
                     result.success(true)
                 } catch (e: Exception) {
+                    Log.e("UhfRfidPlugin", "Power off error", e)
                     result.error("POWER_OFF_ERROR", e.message, null)
                 }
             }
@@ -172,10 +183,12 @@ class UhfRfidPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChann
                 result.success(0)
             }
             "startInventory" -> {
+                Log.d("UhfRfidPlugin", "Start inventory requested")
                 startInventory()
                 result.success(true)
             }
             "stopInventory" -> {
+                Log.d("UhfRfidPlugin", "Stop inventory requested")
                 stopInventory()
                 result.success(true)
             }
@@ -185,34 +198,94 @@ class UhfRfidPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChann
                 reader = null
                 result.success(true)
             }
+            "testReader" -> {
+                val r = reader
+                if (r == null) {
+                    result.success(mapOf(
+                        "status" to "error",
+                        "message" to "Reader is null - not initialized"
+                    ))
+                    return
+                }
+                
+                Thread {
+                    try {
+                        Log.d("UhfRfidPlugin", "Testing reader functionality")
+                        
+                        // Test basic inventory call
+                        val epcs = r.inventoryRealTime()
+                        val rssis = r.rssiList
+                        
+                        val testResult = mapOf(
+                            "status" to "success",
+                            "reader_initialized" to true,
+                            "epcs_result" to (epcs != null),
+                            "epcs_count" to (epcs?.size ?: 0),
+                            "rssis_result" to (rssis != null),
+                            "rssis_count" to (rssis?.size ?: 0),
+                            "scanning" to scanning,
+                            "stream_mode" to streamMode,
+                            "event_sink_available" to (eventSink != null)
+                        )
+                        
+                        Log.d("UhfRfidPlugin", "Test result: $testResult")
+                        mainHandler.post { result.success(testResult) }
+                    } catch (e: Exception) {
+                        Log.e("UhfRfidPlugin", "Test reader error", e)
+                        mainHandler.post { 
+                            result.success(mapOf(
+                                "status" to "error",
+                                "message" to e.message
+                            )) 
+                        }
+                    }
+                }.start()
+            }
             else -> result.notImplemented()
         }
     }
 
     override fun onListen(args: Any?, events: EventChannel.EventSink?) {
+        Log.d("UhfRfidPlugin", "EventChannel onListen called, eventSink=$events")
         eventSink = events
     }
 
     override fun onCancel(args: Any?) {
+        Log.d("UhfRfidPlugin", "EventChannel onCancel called")
         eventSink = null
     }
 
     private fun startInventory() {
+        Log.d("UhfRfidPlugin", "startInventory called, scanning=$scanning")
         if (scanning) return
         if (inventoryThread == null) {
             inventoryThread = HandlerThread("uhf-inventory")
             inventoryThread!!.start()
             inventoryHandler = Handler(inventoryThread!!.looper)
+            Log.d("UhfRfidPlugin", "Created inventory thread")
         }
         scanning = true
+        Log.d("UhfRfidPlugin", "Starting inventory loop, reader=$reader, eventSink=$eventSink, streamMode=$streamMode")
         inventoryHandler?.post(object : Runnable {
             override fun run() {
                 if (!scanning) return
                 val r = reader
-                if (r != null) {
+                if (r == null) {
+                    Log.w("UhfRfidPlugin", "Reader is null in inventory loop")
+                    inventoryHandler?.postDelayed(this, 40L)
+                    return
+                }
+                if (eventSink == null) {
+                    Log.w("UhfRfidPlugin", "EventSink is null in inventory loop")
+                    inventoryHandler?.postDelayed(this, 40L)
+                    return
+                }
+                
+                try {
                     if (streamMode == "epc") {
                         val epcs = r.inventoryRealTime()
                         val rssis = r.rssiList
+                        Log.d("UhfRfidPlugin", "inventoryRealTime returned: epcs=${epcs?.size ?: "null"}, rssis=${rssis?.size ?: "null"}")
                         if (epcs != null && epcs.isNotEmpty()) {
                             var i = 0
                             for (raw in epcs) {
@@ -220,22 +293,31 @@ class UhfRfidPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChann
                                 i++
                                 if (raw != null) {
                                     val hex = Tools.Bytes2HexString(raw, raw.size)
+                                    Log.d("UhfRfidPlugin", "Found EPC: $hex, RSSI: $rssi")
                                     mainHandler.post {
                                         eventSink?.success(mapOf("epc" to hex, "rssi" to rssi))
                                     }
                                 }
                             }
+                        } else {
+                            Log.d("UhfRfidPlugin", "No EPCs found in this cycle")
                         }
                     } else {
                         // streamMode == "tid": issue a single TID read cycle and emit when present
+                        Log.d("UhfRfidPlugin", "Attempting TID read")
                         val data: ByteArray? = r.readFrom6C(2, 0, 6, byteArrayOf(0x00, 0x00, 0x00, 0x00))
                         if (data != null && data.isNotEmpty()) {
                             val hex = Tools.Bytes2HexString(data, data.size)
+                            Log.d("UhfRfidPlugin", "Found TID: $hex")
                             mainHandler.post {
                                 eventSink?.success(mapOf("tid" to hex))
                             }
+                        } else {
+                            Log.d("UhfRfidPlugin", "No TID found in this cycle")
                         }
                     }
+                } catch (e: Exception) {
+                    Log.e("UhfRfidPlugin", "Error in inventory loop", e)
                 }
                 inventoryHandler?.postDelayed(this, 40L)
             }
