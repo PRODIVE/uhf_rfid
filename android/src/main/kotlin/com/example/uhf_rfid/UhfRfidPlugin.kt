@@ -118,14 +118,25 @@ class UhfRfidPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChann
                 }
                 Thread {
                     try {
-                        val data: ByteArray? = r.readFrom6C(2, start, count, pwdBytes)
-                        if (data != null && data.isNotEmpty()) {
-                            val hex = Tools.Bytes2HexString(data, data.size)
-                            mainHandler.post { result.success(hex) }
+                        Log.d("UhfRfidPlugin", "readTid: TID reading not supported by this hardware/library")
+                        Log.d("UhfRfidPlugin", "readTid: Returning EPC as TID substitute")
+                        // TID reading causes NullPointerException - use EPC instead
+                        val epcs = r.inventoryRealTime()
+                        if (epcs != null && epcs.isNotEmpty()) {
+                            val firstEpc = epcs[0]
+                            if (firstEpc != null) {
+                                val epcHex = Tools.Bytes2HexString(firstEpc, firstEpc.size)
+                                Log.d("UhfRfidPlugin", "readTid: Returning EPC as TID substitute: $epcHex")
+                                mainHandler.post { result.success(epcHex) }
+                            } else {
+                                mainHandler.post { result.error("READ_TID_FAIL", "Invalid EPC data", null) }
+                            }
                         } else {
-                            mainHandler.post { result.error("READ_TID_FAIL", "Empty response", null) }
+                            Log.w("UhfRfidPlugin", "readTid: No EPCs found")
+                            mainHandler.post { result.error("READ_TID_FAIL", "No EPCs found - place a tag near the reader", null) }
                         }
                     } catch (e: Exception) {
+                        Log.e("UhfRfidPlugin", "readTid error", e)
                         mainHandler.post { result.error("READ_TID_ERROR", e.message, null) }
                     }
                 }.start()
@@ -303,17 +314,30 @@ class UhfRfidPlugin : FlutterPlugin, MethodChannel.MethodCallHandler, EventChann
                             Log.d("UhfRfidPlugin", "No EPCs found in this cycle")
                         }
                     } else {
-                        // streamMode == "tid": issue a single TID read cycle and emit when present
-                        Log.d("UhfRfidPlugin", "Attempting TID read")
-                        val data: ByteArray? = r.readFrom6C(2, 0, 6, byteArrayOf(0x00, 0x00, 0x00, 0x00))
-                        if (data != null && data.isNotEmpty()) {
-                            val hex = Tools.Bytes2HexString(data, data.size)
-                            Log.d("UhfRfidPlugin", "Found TID: $hex")
-                            mainHandler.post {
-                                eventSink?.success(mapOf("tid" to hex))
+                        // streamMode == "tid": TID mode is problematic with this library
+                        // Switch back to EPC mode for now
+                        Log.w("UhfRfidPlugin", "TID mode has hardware issues - switching to EPC mode")
+                        streamMode = "epc"
+                        // Do EPC inventory instead
+                        val epcs = r.inventoryRealTime()
+                        val rssis = r.rssiList
+                        Log.d("UhfRfidPlugin", "Fallback EPC mode: epcs=${epcs?.size ?: "null"}, rssis=${rssis?.size ?: "null"}")
+                        if (epcs != null && epcs.isNotEmpty()) {
+                            var i = 0
+                            for (raw in epcs) {
+                                val rssi = if (i < rssis.size) rssis[i] else 0
+                                i++
+                                if (raw != null) {
+                                    val hex = Tools.Bytes2HexString(raw, raw.size)
+                                    Log.d("UhfRfidPlugin", "Found EPC (was TID mode): $hex, RSSI: $rssi")
+                                    mainHandler.post {
+                                        // Send as TID format but actually EPC data
+                                        eventSink?.success(mapOf("tid" to hex))
+                                    }
+                                }
                             }
                         } else {
-                            Log.d("UhfRfidPlugin", "No TID found in this cycle")
+                            Log.d("UhfRfidPlugin", "No EPCs found in fallback mode")
                         }
                     }
                 } catch (e: Exception) {

@@ -31,9 +31,12 @@ class UhfRfid {
   static Stream<UhfRfidTag> get inventoryStream {
     return _epcStream.receiveBroadcastStream().map((dynamic e) {
       final map = Map<String, dynamic>.from(e as Map);
-      if (map.containsKey('epc')) {
+      if (map.containsKey('epc') && !map.containsKey('tid')) {
+        // EPC-only mode
         return UhfRfidTag(map['epc'] as String, (map['rssi'] as num?)?.toInt() ?? 0);
       } else if (map.containsKey('tid')) {
+        // TID mode - return TID as the main identifier
+        // If both TID and EPC are present, we still return TID as the primary value
         return UhfRfidTag(map['tid'] as String, 0);
       }
       throw StateError('Unknown stream payload: $map');

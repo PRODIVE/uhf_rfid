@@ -59,10 +59,10 @@ All methods are static on `UhfRfid`.
   - In TID mode: `UhfRfidTag.epc` contains the TID hex and `rssi` is 0.
 
 - `Future<void> setStreamMode({required bool tid})`
-  - Selects stream content: `tid: false` → EPC; `tid: true` → TID.
+  - Selects stream content: `tid: false` → EPC; `tid: true` → TID (fallback to EPC if TID not supported by hardware).
 
 - `Future<String?> readTid({int startWord = 0, int wordCount = 6, String accessPasswordHex = '00000000'})`
-  - One-shot TID read from the TID memory bank (bank 2).
+  - One-shot TID read from the TID memory bank (bank 2). **Note: Returns EPC as substitute if TID reading not supported by hardware.**
   - `startWord`: word offset within TID bank.
   - `wordCount`: number of 16-bit words to read.
   - `accessPasswordHex`: 4-byte access password in hex.
